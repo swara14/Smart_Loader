@@ -1,4 +1,5 @@
 #include "loader.h"
+#include <signal.h>
 Elf32_Ehdr *ehdr;
 Elf32_Phdr *phdr;
 //declaring global variables
@@ -6,9 +7,24 @@ int fd , i ,min_entrypoint;
 Elf32_Addr entry_pt = 0 ;
 void *virtual_mem = NULL;
 
-/*
- * Release memory and perform other cleanups
- */
+void signal_handler( int signum ){
+  if (signum == SIGSEGV)
+  {
+    //allocate memory over here
+  }
+}
+
+void setup_signal_handler() {
+    struct sigaction sh_sev;
+    memset(&sh_sev, 0, sizeof(sh_sev));
+    sh_sev.sa_handler = signal_handler; 
+    if (sigaction(SIGSEGV, &sh_sev, NULL) == -1)
+    {
+        printf("Error in handling SIGSEV\n");
+    }
+    memset(&sh_sev, 0, sizeof(sh_sev));
+}
+
 void free_space(){
     free(ehdr);
     free(phdr);
@@ -148,7 +164,7 @@ void load_and_run_elf(char* exe) {
   find_entry_pt();
 
   // 3. Allocate memory and load the segment content
-  Load_memory();
+  //Load_memory();
 
   // 4. Calculate the offset between entry point and segment starting address
   Elf32_Addr offset = ehdr->e_entry - entry_pt;
