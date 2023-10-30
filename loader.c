@@ -162,10 +162,13 @@ void load_and_run_elf(char *exe)
 	printf("User _start return value = %d\n", result);
 }
 
+int segfault_occured=0;
 void signal_handler(int signum)
 {
-	if (signum == SIGSEGV)
-	{
+	if (signum == SIGSEGV){
+		if(segfault_occured){
+			exit(1);
+		}
 		printf("GOT SIGSEV\n");
 		Load_memory();
 
