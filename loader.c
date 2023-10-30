@@ -18,9 +18,17 @@ void check_offset(off_t new_position)
 	}
 }
 
-void Load_memory()
-{
-	virtual_mem = mmap(NULL, phdr[i].p_memsz, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+size_t roundUpTo4KB(size_t size) {
+    size_t pageSize = 4096;
+    size_t mask = pageSize - 1;
+    return (size + mask) & ~mask;
+}
+
+void Load_memory(){
+	size_t rounded_up_size = roundUpTo4KB(phdr[i].p_memsz);
+	size_t fragmentation = rounded_up_size - phdr[i].p_memsz;
+	printf("fragmentation is %d\n", fragmentation);
+	virtual_mem = mmap(NULL ,rounded_up_size , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
 
 	if (virtual_mem == MAP_FAILED)
 	{
@@ -31,10 +39,8 @@ void Load_memory()
 	check_offset(lseek(fd, 0, SEEK_SET));
 	check_offset(lseek(fd, phdr[i].p_offset, SEEK_SET));
 
-	// Read segment content into virtual memory
 	read(fd, virtual_mem, phdr[i].p_memsz);
 }
-
 
 void free_space()
 {
@@ -166,9 +172,9 @@ int segfault_occured=0;
 void signal_handler(int signum)
 {
 	if (signum == SIGSEGV){
-		if(segfault_occured){
-			exit(1);
-		}
+		// if(segfault_occured){
+		// 	exit(0);
+		// }
 		printf("GOT SIGSEV\n");
 		Load_memory();
 
@@ -177,6 +183,7 @@ void signal_handler(int signum)
 		int (*_start)() = (int (*)())entry_virtual;
 		int result = _start();
 		printf("User _start return value = %d\n", result);
+		//segfault_occured++;
 		// struct sigaction sh_sev;
         // memset(&sh_sev, 0, sizeof(sh_sev));
         // sh_sev.sa_handler = SIG_DFL;
