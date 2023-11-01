@@ -224,41 +224,71 @@ void load_and_run_elf(char *exe)
 }
 
 int segfault_occured=0;
-void signal_handler(int signum)
-{
-	if (signum == SIGSEGV){
-		if(segfault_occured){
-			exit(0);
-		}
-		printf("GOT SIGSEV\n");
-		Load_memory();
+// void signal_handler(int signum)
+// {
+// 	if (signum == SIGSEGV){
+// 		if(segfault_occured){
+// 			exit(0);
+// 		}
+// 		printf("GOT SIGSEV\n");
+// 		Load_memory();
 
-		Elf32_Addr offset = ehdr->e_entry - entry_pt;
-		entry_virtual = virtual_mem + offset;
-		int (*_start)() = (int (*)())entry_virtual;
-		int result = _start();
-		printf("User _start return value = %d\n", result);
-		//segfault_occured++;
-		// struct sigaction sh_sev;
-        // memset(&sh_sev, 0, sizeof(sh_sev));
-        // sh_sev.sa_handler = SIG_DFL;
-        // sigaction(SIGSEGV, &sh_sev, NULL);
-		free_space();
-		unmapping_virtual_memory();
-		return;
-	}
+// 		Elf32_Addr offset = ehdr->e_entry - entry_pt;
+// 		entry_virtual = virtual_mem + offset;
+// 		int (*_start)() = (int (*)())entry_virtual;
+// 		int result = _start();
+// 		printf("User _start return value = %d\n", result);
+// 		//segfault_occured++;
+// 		// struct sigaction sh_sev;
+//         // memset(&sh_sev, 0, sizeof(sh_sev));
+//         // sh_sev.sa_handler = SIG_DFL;
+//         // sigaction(SIGSEGV, &sh_sev, NULL);
+// 		free_space();
+// 		unmapping_virtual_memory();
+// 		return;
+// 	}
+// }
+
+// void setup_signal_handler()
+// {
+// 	struct sigaction sh_sev;
+// 	memset(&sh_sev, 0, sizeof(sh_sev));
+// 	sh_sev.sa_handler = signal_handler;
+// 	if (sigaction(SIGSEGV, &sh_sev, NULL) == -1)
+// 	{
+// 		printf("Error in handling SIGSEV\n");
+// 	}
+// 	memset(&sh_sev, 0, sizeof(sh_sev));
+// }
+void signal_handler(int signum) {
+    if (signum == SIGSEGV) {
+        if (!segmentation_fault_occurred) {
+            // Attempt to recover from segmentation fault
+            Load_memory();
+            Elf32_Addr offset = ehdr->e_entry - entry_pt;
+            entry_virtual = virtual_mem + offset;
+            int (*_start)() = (int (*)())entry_virtual;
+            int result = _start();
+            printf("User _start return value = %d\n", result);
+            segmentation_fault_occurred = true;
+            // You may need to further handle multiple segmentation faults if they occur
+        } else {
+            // Handle repeated segmentation fault or give up
+            printf("Recurring segmentation fault. Exiting.\n");
+            exit(1);
+        }
+    }
 }
 
-void setup_signal_handler()
-{
-	struct sigaction sh_sev;
-	memset(&sh_sev, 0, sizeof(sh_sev));
-	sh_sev.sa_handler = signal_handler;
-	if (sigaction(SIGSEGV, &sh_sev, NULL) == -1)
-	{
-		printf("Error in handling SIGSEV\n");
-	}
-	memset(&sh_sev, 0, sizeof(sh_sev));
+void setup_signal_handler() {
+    struct sigaction sh_sev;
+    memset(&sh_sev, 0, sizeof(sh_sev));
+    sh_sev.sa_handler = signal_handler;
+    if (sigaction(SIGSEGV, &sh_sev, NULL) == -1) {
+        printf("Error in handling SIGSEGV\n");
+        exit(1);
+    }
+    memset(&sh_sev, 0, sizeof(sh_sev));
 }
 
 int main(int argc, char **argv)
