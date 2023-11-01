@@ -56,15 +56,19 @@ void signal_handler(int signum)
 
 void setup_signal_handler()
 {
-	struct sigaction sh_sev;
-	memset(&sh_sev, 0, sizeof(sh_sev));
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+  sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = segfault_handler;
+    sigaction(SIGSEGV, &sa, NULL);
 
-	sh_sev.sa_handler = signal_handler;
-	if (sigaction(SIGSEGV, &sh_sev, NULL) == -1)
+
+	sa.sa_handler = signal_handler;
+	if (sigaction(SIGSEGV, &sa, NULL) == -1)
 	{
 		printf("Error in handling SIGSEV\n");
 	}
-	memset(&sh_sev, 0, sizeof(sh_sev));
+	memset(&sa, 0, sizeof(sa));
 }
 
 // Unmap virtual memory and close the file descriptor
