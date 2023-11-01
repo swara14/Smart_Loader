@@ -24,11 +24,32 @@ size_t roundUpTo4KB(size_t size) {
     return (size + mask) & ~mask;
 }
 
+int find_i_and_j(Elf32_Phdr* phdr, int phnum) {
+    int i = -1, j = -1;
+    int i_found = 0;
+
+    for (int k = 0; k < phnum; k++) {
+        // Check if the current program header is of type PT_LOAD
+        if (phdr[k].p_type == PT_LOAD) {
+            if (i_found) {
+                // We've already found one PT_LOAD, so this is the second one (j)
+                j = k;
+                break;
+            } else {
+                // This is the first PT_LOAD we've found (i)
+                i = k;
+                i_found = 1;
+            }
+        }
+    }
+    return (i != -1 && j != -1) ? 0 : -1;  // Return 0 if both found, -1 if not
+}
+
 void Load_memory(){
 	size_t rounded_up_size = roundUpTo4KB(phdr[i].p_memsz);
 	size_t fragmentation = rounded_up_size - phdr[i].p_memsz;
 	printf("fragmentation is %d\n", fragmentation);
-	virtual_mem = mmap(NULL ,rounded_up_size , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+	// virtual_mem = mmap(NULL ,rounded_up_size , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
 
 	if (virtual_mem == MAP_FAILED)
 	{
@@ -36,10 +57,37 @@ void Load_memory(){
 		exit(1);
 	}
 
-	check_offset(lseek(fd, 0, SEEK_SET));
-	check_offset(lseek(fd, phdr[i].p_offset, SEEK_SET));
+  // Calculate the total size needed
+  size_t total_size = phdr[i].p_memsz + phdr[j].p_memsz;
 
-	read(fd, virtual_mem, phdr[i].p_memsz);
+  // Round up the total size to the nearest page size
+  size_t rounded_up_size = roundUpTo4KB(total_size);
+  
+  size_t offset_i = phdr[i].p_offset;
+  size_t offset_j = phdr[j].p_offset;
+
+  // Allocate memory based on the total size
+  virtual_mem = mmap(NULL, rounded_up_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+
+  if (virtual_mem == MAP_FAILED) {
+      printf("Failed to allocate virtual memory\n");
+      exit(1);
+  }
+
+  // Read and load the segments into memory
+  check_offset(lseek(fd, 0, SEEK_SET));
+  check_offset(lseek(fd, offset_i, SEEK_SET));
+  read(fd, virtual_mem, phdr[i].p_memsz);
+
+  check_offset(lseek(fd, 0, SEEK_SET));
+  check_offset(lseek(fd, offset_j, SEEK_SET));
+  read(fd, virtual_mem + (phdr[j].p_vaddr - phdr[i].p_vaddr), phdr[j].p_memsz);
+
+
+	// check_offset(lseek(fd, 0, SEEK_SET));
+	// check_offset(lseek(fd, phdr[i].p_offset, SEEK_SET));
+
+	// read(fd, virtual_mem, phdr[i].p_memsz);
 }
 
 void free_space()
@@ -172,9 +220,9 @@ int segfault_occured=0;
 void signal_handler(int signum)
 {
 	if (signum == SIGSEGV){
-		// if(segfault_occured){
-		// 	exit(0);
-		// }
+		if(segfault_occured){
+			exit(0);
+		}
 		printf("GOT SIGSEV\n");
 		Load_memory();
 
