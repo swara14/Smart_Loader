@@ -2,12 +2,12 @@
 #include <signal.h>
 Elf32_Ehdr *ehdr;
 Elf32_Phdr *phdr;
-int fd, i, min_entrypoint;
+int fd, i,j , min_entrypoint;
 Elf32_Addr entry_pt = 0;
 void *virtual_mem = NULL;
 size_t PAGE_SIZE = 4096;
 void *entry_virtual;
-Elf32_Addr offset;
+Elf32_Addr offset, *address_i, *address_j;
 
 void check_offset(off_t new_position)
 {
@@ -31,31 +31,34 @@ int find_i_and_j(Elf32_Phdr* phdr, int phnum) {
     for (int k = 0; k < phnum; k++) {
         // Check if the current program header is of type PT_LOAD
         if (phdr[k].p_type == PT_LOAD) {
-            if (i_found) {
+            if (i_found && phdr[k].p_flags && ( PF_R|PF_X ) == (PF_R|PF_X) ) {
                 // We've already found one PT_LOAD, so this is the second one (j)
                 j = k;
                 break;
-            } else {
+            } else if(phdr[k].p_flags && ( PF_R|PF_W ) == (PF_R|PF_W)) {
                 // This is the first PT_LOAD we've found (i)
                 i = k;
                 i_found = 1;
             }
         }
     }
+	address_i = phdr[i].p_vaddr;
+	address_j = phdr[j].p_vaddr;
+
+
     return (i != -1 && j != -1) ? 0 : -1;  // Return 0 if both found, -1 if not
 }
 
 void Load_memory(){
-	size_t rounded_up_size = roundUpTo4KB(phdr[i].p_memsz);
-	size_t fragmentation = rounded_up_size - phdr[i].p_memsz;
-	printf("fragmentation is %d\n", fragmentation);
-	// virtual_mem = mmap(NULL ,rounded_up_size , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+	// size_t fragmentation = rounded_up_size - phdr[i].p_memsz;
+	// printf("fragmentation is %d\n", fragmentation);
+	// // virtual_mem = mmap(NULL ,rounded_up_size , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
 
-	if (virtual_mem == MAP_FAILED)
-	{
-		printf("Failed to allocate virtual memory\n");
-		exit(1);
-	}
+	// if (virtual_mem == MAP_FAILED)
+	// {
+	// 	printf("Failed to allocate virtual memory\n");
+	// 	exit(1);
+	// }
 
   // Calculate the total size needed
   size_t total_size = phdr[i].p_memsz + phdr[j].p_memsz;
@@ -203,17 +206,22 @@ void load_and_run_elf(char *exe)
 	load_ehdr(size_of_ehdr);
 	load_phdr(size_of_phdr);
 
-	find_entry_pt();
+	// find_entry_pt();
 
 	// Load_memory();
-	Elf32_Addr total_memsz = phdr[i].p_memsz;
-	Elf32_Addr offset = ehdr->e_entry - entry_pt;
+	// Elf32_Addr total_memsz = phdr[i].p_memsz;
+	// Elf32_Addr offset = ehdr->e_entry - entry_pt;
 
-	offset = ehdr->e_entry - entry_pt;
-	entry_virtual = virtual_mem + offset;
-	int (*_start)() = (int (*)())entry_virtual;
-	int result = _start();
-	printf("User _start return value = %d\n", result);
+	// offset = ehdr->e_entry - entry_pt;
+	// entry_virtual = virtual_mem + offset;
+	// int (*_start)() = (int (*)())entry_virtual;
+	// int result = _start();
+	// printf("User _start return value = %d\n", result);
+
+	find_i_and_j(phdr, ehdr->e_phnum);
+	printf("i is 0x%08x and j is 0x%08x", address_i, address_j);
+
+
 }
 
 int segfault_occured=0;
@@ -253,7 +261,6 @@ void setup_signal_handler()
 	}
 	memset(&sh_sev, 0, sizeof(sh_sev));
 }
-
 
 int main(int argc, char **argv)
 {
