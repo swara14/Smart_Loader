@@ -31,17 +31,15 @@ int find_i_and_j(Elf32_Phdr* phdr, int phnum) {
     for (int k = 0; k < phnum; k++) {
         // Check if the current program header is of type PT_LOAD
         if (phdr[k].p_type == PT_LOAD) {
-            if (i_found && phdr[k].p_flags && ( PF_R|PF_X ) == (PF_R|PF_X) ) {
-                // We've already found one PT_LOAD, so this is the second one (j)
-                j = k;
-                break;
-            } else if(phdr[k].p_flags && ( PF_R|PF_W ) == (PF_R|PF_W)) {
-                // This is the first PT_LOAD we've found (i)
-                i = k;
-                i_found = 1;
+            // Check if it has the required flags for i or j
+            if ((phdr[k].p_flags & (PF_R|PF_X)) == (PF_R|PF_X)) {
+                *i = k;
+            } else if ((phdr[k].p_flags & (PF_R|PF_W)) == (PF_R|PF_W)) {
+                *j = k;
             }
         }
     }
+
 	address_i = phdr[i].p_vaddr;
 	address_j = phdr[j].p_vaddr;
 
