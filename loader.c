@@ -1,5 +1,6 @@
 #include "loader.h"
 #include <signal.h>
+#include <execinfo.h>
 Elf32_Ehdr *ehdr;
 Elf32_Phdr *phdr;
 //declaring global variables
@@ -58,8 +59,8 @@ void setup_signal_handler()
 {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
-  sa.sa_flags = SA_SIGINFO;
-    sa.sa_sigaction = segfault_handler;
+  	sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = signal_handler;
     sigaction(SIGSEGV, &sa, NULL);
 
 
@@ -163,9 +164,9 @@ void find_entry_pt(){
 }
 
 // Allocate virtual memory and load segment content
-void Load_memory( size_t size_of_phdr ){
+void Load_memory( size_t size_of_phdr , siginfo_t *si){
 
-  virtual_mem = mmap(si, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
+  virtual_mem = mmap(si -> si_addr, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
   
   if (virtual_mem == MAP_FAILED) {
       printf("Failed to allocate virtual memory\n");
