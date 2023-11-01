@@ -32,10 +32,10 @@ int find_i_and_j(Elf32_Phdr* phdr, int phnum) {
         // Check if the current program header is of type PT_LOAD
         if (phdr[k].p_type == PT_LOAD) {
             // Check if it has the required flags for i or j
-            if ((phdr[k].p_flags & (PF_R|PF_X)) == (PF_R|PF_X)) {
-                *i = k;
+            if (!i_found && (phdr[k].p_flags & (PF_R|PF_X)) == (PF_R|PF_X)) {
+                i = k;
             } else if ((phdr[k].p_flags & (PF_R|PF_W)) == (PF_R|PF_W)) {
-                *j = k;
+                j = k;
             }
         }
     }
@@ -203,21 +203,22 @@ void load_and_run_elf(char *exe)
 
 	load_ehdr(size_of_ehdr);
 	load_phdr(size_of_phdr);
-
+	find_i_and_j(phdr, ehdr->e_phnum);
 	// find_entry_pt();
 
-	// Load_memory();
+	Load_memory();
 	// Elf32_Addr total_memsz = phdr[i].p_memsz;
 	// Elf32_Addr offset = ehdr->e_entry - entry_pt;
+	
+	entry_pt = phdr[i].p_vaddr;
+	offset = ehdr->e_entry - entry_pt;
+	entry_virtual = virtual_mem + offset;
+	int (*_start)() = (int (*)())entry_virtual;
+	int result = _start();
+	printf("User _start return value = %d\n", result);
 
-	// offset = ehdr->e_entry - entry_pt;
-	// entry_virtual = virtual_mem + offset;
-	// int (*_start)() = (int (*)())entry_virtual;
-	// int result = _start();
-	// printf("User _start return value = %d\n", result);
-
-	find_i_and_j(phdr, ehdr->e_phnum);
-	printf("i is 0x%08x and j is 0x%08x", address_i, address_j);
+	// find_i_and_j(phdr, ehdr->e_phnum);
+	// printf("i is 0x%08x and j is 0x%08x", address_i, address_j);
 
 
 }
