@@ -1,4 +1,5 @@
 #include "loader.h"
+#include <signal.h>
 Elf32_Ehdr *ehdr;
 Elf32_Phdr *phdr;
 //declaring global variables
@@ -9,6 +10,61 @@ void *virtual_mem = NULL;
 void free_space(){
     free(ehdr);
     free(phdr);
+}
+
+void signal_handler(int signum)
+{
+	if (signum == SIGSEGV)
+	{
+		printf("GOT SIGSEV\n");
+		void *fault_addr = entry_virtual;
+		for (int i = 0; i < ehdr->e_phnum; i++)
+		{
+			Elf32_Phdr *segment = &phdr[i];
+			if (fault_addr >= (void *)segment->p_vaddr &&
+				fault_addr < (void *)(segment->p_vaddr + segment->p_memsz))
+			{
+				Elf32_Addr offset = (Elf32_Addr)fault_addr - segment->p_vaddr;
+				virtual_mem = mmap((void *)(segment->p_vaddr & ~(PAGE_SIZE - 1)),
+										 PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+				if (virtual_mem == MAP_FAILED)
+				{
+					printf("Failed to allocate memory for lazy loading\n");
+					exit(1);
+				}
+
+				// Copy the segment data to the mapped memory
+				memcpy(virtual_mem, (void *)(segment->p_offset + offset), PAGE_SIZE);
+
+				// Change protection to read-only to catch further accesses
+				mprotect(virtual_mem, PAGE_SIZE, PROT_READ);
+
+				//return; // Segment loaded, no longer a segmentation fault
+			}
+		}
+
+		// If the faulting address is not within any segment, it's an error
+		// printf("Segmentation fault at address: %p\n", fault_addr);
+		// exit(1);
+		Elf32_Addr offset = ehdr->e_entry - entry_pt;
+		entry_virtual = virtual_mem + offset;
+		int (*_start)() = (int (*)())entry_virtual;
+		int result = _start();
+		printf("User _start return value = %d\n", result);
+	}
+}
+
+void setup_signal_handler()
+{
+	struct sigaction sh_sev;
+	memset(&sh_sev, 0, sizeof(sh_sev));
+
+	sh_sev.sa_handler = signal_handler;
+	if (sigaction(SIGSEGV, &sh_sev, NULL) == -1)
+	{
+		printf("Error in handling SIGSEV\n");
+	}
+	memset(&sh_sev, 0, sizeof(sh_sev));
 }
 
 // Unmap virtual memory and close the file descriptor
@@ -105,7 +161,7 @@ void find_entry_pt(){
 // Allocate virtual memory and load segment content
 void Load_memory( size_t size_of_phdr ){
 
-  virtual_mem = mmap(NULL, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
+  virtual_mem = mmap(si, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
   
   if (virtual_mem == MAP_FAILED) {
       printf("Failed to allocate virtual memory\n");
@@ -146,12 +202,12 @@ void load_and_run_elf(char* exe) {
   Load_memory(size_of_phdr);
 
   // 4. Calculate the offset between entry point and segment starting address
-  Elf32_Addr offset = ehdr->e_entry - entry_pt;
+  Elf32_Addr offset = ehdr->e_entry;
   // Get the actual memory address of the _start function
-  void *entry_virtual = virtual_mem + offset+ (ehdr->e_phoff - phdr[1].p_offset);
+  //void *entry_virtual = virtual_mem + offset+ (ehdr->e_phoff - phdr[i].p_offset);
 
   // 5. Typecast the address to a function pointer for "_start" method
-  int (*_start)() = (int(*)())entry_virtual;
+  int (*_start)() = (int(*)())offset;
 
   // 6. Call the "_start" method and print the returned value
   int result = _start();
