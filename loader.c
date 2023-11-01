@@ -221,6 +221,13 @@ void load_and_run_elf(char* exe) {
 
 }
 
+void segfault_handler(int signum, siginfo_t *si, void *context) {
+    if (si->si_signo == SIGSEGV) {
+        printf("Segmentation fault at address: %p\n", si->si_addr);
+        exit(1);
+    }
+}
+
 int main(int argc, char** argv) 
 {
 // checking if we get 2 arguments into the main
