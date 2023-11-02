@@ -10,8 +10,7 @@ size_t fragmentation = 0;
 
 size_t roundUpTo4KB(size_t size) {
     size_t pageSize = 4096;
-    size_t mask = pageSize - 1;
-    return (size + mask) & ~mask;
+    return (size + pageSize-1) & ((pageSize-1)^-1);
 }
 
 void free_space(){
