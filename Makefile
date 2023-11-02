@@ -1,6 +1,7 @@
-all:
-	gcc  -m32 -no-pie -nostdlib -o sum sum.c
-	gcc -m32 -o loader loader.c
+all: libsimpleloader.so
+
+libsimpleloader.so: sum.c loader.c
+	gcc -m32 -shared -o $@ $^ -nostdlib -no-pie
 
 clean:
-	-@rm -f sum loader
+	-@rm -f libsimpleloader.so

@@ -5,6 +5,12 @@ Elf32_Phdr *phdr;
 int fd , i ,min_entrypoint;
 Elf32_Addr entry_pt = 0 ;
 void *virtual_mem = NULL;
+int no_of_faults = 0;
+size_t total_size = 0, fragmentation = 0, PAGE_SIZE = 4096; 
+
+size_t roundup(size_t size) {
+  return (size/PAGE_SIZE + 1) * PAGE_SIZE;
+}
 
 void free_space(){
     free(ehdr);
@@ -73,44 +79,6 @@ void load_ehdr( size_t size_of_ehdr ){
   return;
 }
 
-// Find the appropriate entry point in the program headers corres to PT_LOAD
-void find_entry_pt(){
-  i = 0  ;
-  min_entrypoint = 0;
-  int min = 0xFFFFFFFF;
-  for ( i = 0; i < ehdr -> e_phnum ; i++)
-  {
-    if ( phdr[i].p_flags == 0x5)
-    {
-      if (min > ehdr->e_entry - phdr[i].p_vaddr )
-      {
-        min = ehdr->e_entry - phdr[i].p_vaddr;
-        min_entrypoint = i;
-      }
-    }
-  }
-  i = min_entrypoint;
-  entry_pt = phdr[i].p_vaddr;
-}
-
-// Allocate virtual memory and load segment content
-void Load_memory( size_t size_of_phdr ){
-
-  virtual_mem = mmap(si, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
-  
-  if (virtual_mem == MAP_FAILED) {
-      printf("Failed to allocate virtual memory\n");
-      exit(1);
-  }
-  
-  check_offset(lseek(fd, 0, SEEK_SET));
-  check_offset( lseek( fd , ehdr->e_phoff ,SEEK_SET ) );
-
-  // Read segment content into virtual memory
-  read(fd , virtual_mem , size_of_phdr * ehdr -> e_phnum ) ;
-}
-
-// Open the ELF file and validate the file descriptor
 void open_elf( char* exe ){
   fd = open(exe, O_RDONLY);
   
@@ -127,28 +95,22 @@ void segfault_handler(int signum, siginfo_t *info, void *context) {
     off_t offset = 0;
     size_t size_to_be_allocated = 0;
 
-    for (int i = 0; i < ehdr -> e_phnum; i++)
+    for (int i = 0; i < ehdr->e_phnum ; i++)
     {
       if (phdr[i].p_type == PT_LOAD)
       {
-        size_to_be_allocated += phdr[i].p_memsz;
-      }
-    }
+        if ( (info->si_addr) >= (phdr[i].p_vaddr) && (info->si_addr) < phdr[i].p_vaddr + phdr[i].p_memsz ){
 
-    size_to_be_allocated = roundUpTo4KB(size_to_be_allocated);
-    //size_to_be_allocated = size_to_be_allocated * 6;
-    printf("size of %d\n", size_to_be_allocated);
-    ///size_to_be_allocated = size_to_be_allocated*;
-    virtual_mem = mmap( info -> si_addr , size_to_be_allocated , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
-
-    for (int i = 0; i < ehdr ->e_phnum; i++)
-    {
-      if (phdr[i].p_type == PT_LOAD){
-        check_offset(lseek(fd, 0, SEEK_SET));
-        check_offset(lseek(fd, phdr[i].p_offset , SEEK_SET) );
-        read(fd, virtual_mem + offset , phdr[i].p_memsz);
-        offset += phdr[i].p_offset;
-      }
+          size_to_be_allocated = roundup(phdr[i].p_memsz);
+          total_size += size_to_be_allocated;
+          fragmentation = fragmentation + size_to_be_allocated - phdr[i].p_memsz;
+          //printf("fragmentation now is :%d\n", size_to_be_allocated - phdr[i].p_memsz);
+          virtual_mem = mmap( info -> si_addr , size_to_be_allocated , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
+          check_offset(lseek(fd, phdr[i].p_offset , SEEK_SET) );
+          read(fd, virtual_mem  , phdr[i].p_memsz);
+          break; 
+        }
+      }      
     }
   }
 }
@@ -159,6 +121,7 @@ void setup_signal_handler(){
     sa.sa_sigaction = segfault_handler;
     sigaction(SIGSEGV, &sa, NULL);
 }
+
 void load_and_run_elf(char* exe) {
   open_elf(exe);
 
@@ -172,9 +135,9 @@ void load_and_run_elf(char* exe) {
 
   printf("User _start return value = %d\n", result);
   printf("no of faults: %d\n", no_of_faults);
+  printf("Number of pages used: %d\n", total_size / 4096);
+  printf("Total internal fragmentation is : %d\n", fragmentation);
 }
-
-
 
 int main(int argc, char** argv) 
 {
