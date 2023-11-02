@@ -5,14 +5,6 @@ Elf32_Phdr *phdr;
 int fd , i ,min_entrypoint;
 Elf32_Addr entry_pt = 0 ;
 void *virtual_mem = NULL;
-int no_of_faults = 0;
-size_t fragmentation = 0;
-
-size_t roundUpTo4KB(size_t size) {
-    size_t pageSize = 4096;
-    size_t mask = pageSize - 1;
-    return (size + mask) & ~mask;
-}
 
 void free_space(){
     free(ehdr);
@@ -81,6 +73,44 @@ void load_ehdr( size_t size_of_ehdr ){
   return;
 }
 
+// Find the appropriate entry point in the program headers corres to PT_LOAD
+void find_entry_pt(){
+  i = 0  ;
+  min_entrypoint = 0;
+  int min = 0xFFFFFFFF;
+  for ( i = 0; i < ehdr -> e_phnum ; i++)
+  {
+    if ( phdr[i].p_flags == 0x5)
+    {
+      if (min > ehdr->e_entry - phdr[i].p_vaddr )
+      {
+        min = ehdr->e_entry - phdr[i].p_vaddr;
+        min_entrypoint = i;
+      }
+    }
+  }
+  i = min_entrypoint;
+  entry_pt = phdr[i].p_vaddr;
+}
+
+// Allocate virtual memory and load segment content
+void Load_memory( size_t size_of_phdr ){
+
+  virtual_mem = mmap(si, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
+  
+  if (virtual_mem == MAP_FAILED) {
+      printf("Failed to allocate virtual memory\n");
+      exit(1);
+  }
+  
+  check_offset(lseek(fd, 0, SEEK_SET));
+  check_offset( lseek( fd , ehdr->e_phoff ,SEEK_SET ) );
+
+  // Read segment content into virtual memory
+  read(fd , virtual_mem , size_of_phdr * ehdr -> e_phnum ) ;
+}
+
+// Open the ELF file and validate the file descriptor
 void open_elf( char* exe ){
   fd = open(exe, O_RDONLY);
   
