@@ -81,39 +81,6 @@ void load_ehdr( size_t size_of_ehdr ){
   return;
 }
 
-void find_entry_pt(){
-  i = 0  ;
-  min_entrypoint = 0;
-  int min = 0xFFFFFFFF;
-  for ( i = 0; i < ehdr -> e_phnum ; i++)
-  {
-    if ( phdr[i].p_flags == 0x5 || phdr[i].p_flags == 0x6 )
-    {
-      if (min > ehdr->e_entry - phdr[i].p_vaddr )
-      {
-        min = ehdr->e_entry - phdr[i].p_vaddr;
-        min_entrypoint = i;
-      }
-    }
-  }
-  i = min_entrypoint;
-  entry_pt = phdr[i].p_vaddr;
-}
-
-void Load_memory(){
-  virtual_mem = mmap(NULL, phdr[i].p_memsz, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
-  
-  if (virtual_mem == MAP_FAILED) {
-      printf("Failed to allocate virtual memory\n");
-      exit(1);
-  }
-  
-  check_offset(lseek(fd, 0, SEEK_SET));
-  check_offset( lseek( fd , phdr[i].p_offset ,SEEK_SET ) );
-
-  read(fd , virtual_mem ,phdr[i].p_memsz) ;
-}
-
 void open_elf( char* exe ){
   fd = open(exe, O_RDONLY);
   
