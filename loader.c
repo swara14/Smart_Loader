@@ -2,80 +2,22 @@
 #include <signal.h>
 Elf32_Ehdr *ehdr;
 Elf32_Phdr *phdr;
-//declaring global variables
 int fd , i ,min_entrypoint;
 Elf32_Addr entry_pt = 0 ;
 void *virtual_mem = NULL;
+int no_of_faults = 0;
+size_t fragmentation = 0;
+
+size_t roundUpTo4KB(size_t size) {
+    size_t pageSize = 4096;
+    size_t mask = pageSize - 1;
+    return (size + mask) & ~mask;
+}
 
 void free_space(){
     free(ehdr);
     free(phdr);
 }
-
-void signal_handler(int signum, siginfo_t *si, void *context)
-{
-  if (si->si_signo == SIGSEGV) {
-        printf("Segmentation fault at address: %p\n", si->si_addr);
-        exit(1);
-    }
-	if (signum == SIGSEGV)
-	{
-		printf("GOT SIGSEV\n");
-		void *fault_addr = entry_virtual;
-		for (int i = 0; i < ehdr->e_phnum; i++)
-		{
-			Elf32_Phdr *segment = &phdr[i];
-			if (fault_addr >= (void *)segment->p_vaddr &&
-				fault_addr < (void *)(segment->p_vaddr + segment->p_memsz))
-			{
-				Elf32_Addr offset = (Elf32_Addr)fault_addr - segment->p_vaddr;
-				virtual_mem = mmap((void *)(segment->p_vaddr & ~(PAGE_SIZE - 1)),
-										 PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-				if (virtual_mem == MAP_FAILED)
-				{
-					printf("Failed to allocate memory for lazy loading\n");
-					exit(1);
-				}
-
-				// Copy the segment data to the mapped memory
-				memcpy(virtual_mem, (void *)(segment->p_offset + offset), PAGE_SIZE);
-
-				// Change protection to read-only to catch further accesses
-				mprotect(virtual_mem, PAGE_SIZE, PROT_READ);
-
-				//return; // Segment loaded, no longer a segmentation fault
-			}
-		}
-
-		// If the faulting address is not within any segment, it's an error
-		// printf("Segmentation fault at address: %p\n", fault_addr);
-		// exit(1);
-		Elf32_Addr offset = ehdr->e_entry - entry_pt;
-		entry_virtual = virtual_mem + offset;
-		int (*_start)() = (int (*)())entry_virtual;
-		int result = _start();
-		printf("User _start return value = %d\n", result);
-	}
-}
-
-void setup_signal_handler()
-{
-	struct sigaction sa;
-	memset(&sa, 0, sizeof(sa));
-  sa.sa_flags = SA_SIGINFO;
-    sa.sa_sigaction = segfault_handler;
-    sigaction(SIGSEGV, &sa, NULL);
-
-
-	sa.sa_handler = signal_handler;
-	if (sigaction(SIGSEGV, &sa, NULL) == -1)
-	{
-		printf("Error in handling SIGSEV\n");
-	}
-	memset(&sa, 0, sizeof(sa));
-}
-
-// Unmap virtual memory and close the file descriptor
 
 void unmapping_virtual_memory(){
     if (virtual_mem != NULL) {
@@ -84,7 +26,6 @@ void unmapping_virtual_memory(){
     close(fd);
 }
 
-// Check if the ELF file can be opened for reading
 void check_file_read(const char* exe){
   int fd = open(exe, O_RDONLY);
   if (fd < 0) {
@@ -92,7 +33,6 @@ void check_file_read(const char* exe){
     exit(1);
   }
 }
-// Check if offset seeking was successful
 void check_offset( off_t new_position ){
   if ( new_position == -1 )
   {
@@ -101,7 +41,6 @@ void check_offset( off_t new_position ){
   }
 }
 
-// Load program headers into memory
 void load_phdr( size_t size_of_phdr ){
   phdr = ( Elf32_Phdr* )malloc( size_of_phdr * ehdr->e_phnum); 
   
@@ -113,7 +52,6 @@ void load_phdr( size_t size_of_phdr ){
   check_offset(lseek(fd, 0, SEEK_SET));
   check_offset( lseek(fd , ehdr -> e_phoff , SEEK_SET ) );
   
-  // Read program headers into memory
   if ( read( fd , phdr , size_of_phdr * ehdr -> e_phnum) !=  size_of_phdr * ehdr -> e_phnum)
   {
     printf("Failed to load program headers properly\n");
@@ -122,7 +60,6 @@ void load_phdr( size_t size_of_phdr ){
   return;
 }
 
-// Load ELF header into memory and perform necessary checks
 void load_ehdr( size_t size_of_ehdr ){
   ehdr = ( Elf32_Ehdr* )malloc(size_of_ehdr);
   
@@ -132,13 +69,11 @@ void load_ehdr( size_t size_of_ehdr ){
   }
 
   check_offset( lseek(fd, 0, SEEK_SET) ); 
-  // Read ELF header into memory
   if (read(fd, ehdr, size_of_ehdr) != size_of_ehdr)
   {
     printf("Failed to load ELF header properly\n");
     exit(1);
   }
-  // Check if the ELF file is 32-bit
   if (ehdr -> e_ident[EI_CLASS] != ELFCLASS32) {
     printf("Not a 32-bit ELF file\n");
     exit(1);
@@ -146,14 +81,13 @@ void load_ehdr( size_t size_of_ehdr ){
   return;
 }
 
-// Find the appropriate entry point in the program headers corres to PT_LOAD
 void find_entry_pt(){
   i = 0  ;
   min_entrypoint = 0;
   int min = 0xFFFFFFFF;
   for ( i = 0; i < ehdr -> e_phnum ; i++)
   {
-    if ( phdr[i].p_flags == 0x5)
+    if ( phdr[i].p_flags == 0x5 || phdr[i].p_flags == 0x6 )
     {
       if (min > ehdr->e_entry - phdr[i].p_vaddr )
       {
@@ -166,10 +100,8 @@ void find_entry_pt(){
   entry_pt = phdr[i].p_vaddr;
 }
 
-// Allocate virtual memory and load segment content
-void Load_memory( size_t size_of_phdr ){
-
-  virtual_mem = mmap(si, size_of_phdr * ehdr -> e_phnum, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
+void Load_memory(){
+  virtual_mem = mmap(NULL, phdr[i].p_memsz, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
   
   if (virtual_mem == MAP_FAILED) {
       printf("Failed to allocate virtual memory\n");
@@ -177,13 +109,11 @@ void Load_memory( size_t size_of_phdr ){
   }
   
   check_offset(lseek(fd, 0, SEEK_SET));
-  check_offset( lseek( fd , ehdr->e_phoff ,SEEK_SET ) );
+  check_offset( lseek( fd , phdr[i].p_offset ,SEEK_SET ) );
 
-  // Read segment content into virtual memory
-  read(fd , virtual_mem , size_of_phdr * ehdr -> e_phnum ) ;
+  read(fd , virtual_mem ,phdr[i].p_memsz) ;
 }
 
-// Open the ELF file and validate the file descriptor
 void open_elf( char* exe ){
   fd = open(exe, O_RDONLY);
   
@@ -193,59 +123,73 @@ void open_elf( char* exe ){
   }
 }
 
-// Load and execute the ELF executable
+void segfault_handler(int signum, siginfo_t *info, void *context) {
+  if (signum == SIGSEGV)
+  {
+    no_of_faults++;
+    off_t offset = 0;
+    size_t size_to_be_allocated = 0;
+
+    for (int i = 0; i < ehdr -> e_phnum; i++)
+    {
+      if (phdr[i].p_type == PT_LOAD)
+      {
+        size_to_be_allocated += phdr[i].p_memsz;
+      }
+    }
+
+    size_to_be_allocated = roundUpTo4KB(size_to_be_allocated);
+    //size_to_be_allocated = size_to_be_allocated * 6;
+    printf("size of %d\n", size_to_be_allocated);
+    ///size_to_be_allocated = size_to_be_allocated*;
+    virtual_mem = mmap( info -> si_addr , size_to_be_allocated , PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
+
+    for (int i = 0; i < ehdr ->e_phnum; i++)
+    {
+      if (phdr[i].p_type == PT_LOAD){
+        check_offset(lseek(fd, 0, SEEK_SET));
+        check_offset(lseek(fd, phdr[i].p_offset , SEEK_SET) );
+        read(fd, virtual_mem + offset , phdr[i].p_memsz);
+        offset += phdr[i].p_offset;
+      }
+    }
+  }
+}
+
+void setup_signal_handler(){
+    struct sigaction sa;
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = segfault_handler;
+    sigaction(SIGSEGV, &sa, NULL);
+}
 void load_and_run_elf(char* exe) {
   open_elf(exe);
 
   size_t size_of_phdr = sizeof( Elf32_Phdr ) ,size_of_ehdr = sizeof( Elf32_Ehdr); // size of one program header
 
-  // 1. Load entire binary content into memory from the ELF file.
   load_ehdr( size_of_ehdr );
   load_phdr( size_of_phdr );
 
-  // 2. Find the appropriate entry point in the program headers
-  find_entry_pt();
-
-  // 3. Allocate memory and load the segment content
-  Load_memory(size_of_phdr);
-
-  // 4. Calculate the offset between entry point and segment starting address
-  Elf32_Addr offset = ehdr->e_entry;
-  // Get the actual memory address of the _start function
-  //void *entry_virtual = virtual_mem + offset+ (ehdr->e_phoff - phdr[i].p_offset);
-
-  // 5. Typecast the address to a function pointer for "_start" method
-  int (*_start)() = (int(*)())offset;
-
-  // 6. Call the "_start" method and print the returned value
+  int (*_start)() = (int(*)())ehdr -> e_entry;
   int result = _start();
 
-  // Cleanup and display result
   printf("User _start return value = %d\n", result);
-
+  printf("no of faults: %d\n", no_of_faults);
 }
 
-void segfault_handler(int signum, siginfo_t *si, void *context) {
-    if (si->si_signo == SIGSEGV) {
-        printf("Segmentation fault at address: %p\n", si->si_addr);
-        exit(1);
-    }
-}
+
 
 int main(int argc, char** argv) 
 {
-// checking if we get 2 arguments into the main
   if(argc != 2) {
     printf("Usage: %s <ELF Executable> \n",argv[0]);
     exit(1);
   }
-  // 1. Check the ELF file can be read
+  setup_signal_handler();
   check_file_read(argv[1]);
 
-  // 2. Load and execute the ELF executable
   load_and_run_elf(argv[1]);
 
-  // 3. Perform cleanup
   free_space();
   unmapping_virtual_memory();
 
