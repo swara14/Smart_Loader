@@ -12,11 +12,13 @@ size_t roundup(size_t size) {
   return (size/PAGE_SIZE + 1) * PAGE_SIZE;
 }
 
+// Release memory and perform other cleanups
 void free_space(){
     free(ehdr);
     free(phdr);
 }
 
+// Unmap virtual memory and close the file descriptor
 void unmapping_virtual_memory(){
     if (virtual_mem != NULL) {
         munmap(virtual_mem, phdr[i].p_memsz);
@@ -24,6 +26,7 @@ void unmapping_virtual_memory(){
     close(fd);
 }
 
+//Check if the ELF file can be opened for reading
 void check_file_read(const char* exe){
   int fd = open(exe, O_RDONLY);
   if (fd < 0) {
@@ -32,6 +35,7 @@ void check_file_read(const char* exe){
   }
 }
 
+// Check if offset seeking was successful
 void check_offset( off_t new_position ){
   if ( new_position == -1 )
   {
@@ -40,6 +44,7 @@ void check_offset( off_t new_position ){
   }
 }
 
+// Load program headers into memory
 void load_phdr( size_t size_of_phdr ){
   phdr = ( Elf32_Phdr* )malloc( size_of_phdr * ehdr->e_phnum); 
   
@@ -59,6 +64,7 @@ void load_phdr( size_t size_of_phdr ){
   return;
 }
 
+// Load ELF header into memory and perform necessary checks
 void load_ehdr( size_t size_of_ehdr ){
   ehdr = ( Elf32_Ehdr* )malloc(size_of_ehdr);
   
@@ -90,40 +96,44 @@ void open_elf( char* exe ){
 }
 
 void segfault_handler(int signum, siginfo_t *info, void *context) {
-  if (signum == SIGSEGV)
-  {
+  if (signum == SIGSEGV) {
     no_of_faults++;
     off_t offset = 0;
-    size_t size_to_be_allocated = 0;
 
-    for (int i = 0; i < ehdr->e_phnum ; i++)
-    {
-      if (phdr[i].p_type == PT_LOAD)
-      {
-        if ( (info->si_addr) >= (phdr[i].p_vaddr) && (info->si_addr) < phdr[i].p_vaddr + phdr[i].p_memsz ){
-          printf("Fault address is : %p\n", info->si_addr );
-          //size_to_be_allocated = roundup(phdr[i].p_memsz);
-                  
-          //total_size += size_to_be_allocated;
-          //fragmentation = fragmentation + size_to_be_allocated - phdr[i].p_memsz;
-          //printf("fragmentation now is :%d\n", size_to_be_allocated - phdr[i].p_memsz);
-          
-          virtual_mem = mmap( info -> si_addr , 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE , 0, 0);  
-          check_offset(lseek(fd, 0 , SEEK_SET) );
-          check_offset(lseek(fd, phdr[i].p_offset , SEEK_SET) );
-          size_t bytes_read = read(fd, virtual_mem , 4096 );
-          printf("Bytes read = %d\n", bytes_read );
-          if (bytes_read < 4096 )
-          {
-            fragmentation = fragmentation + 4096 - bytes_read;
+    for (int i = 0; i < ehdr->e_phnum; i++) {
+      if (phdr[i].p_type == PT_LOAD) {
+        if ((info->si_addr) >= (phdr[i].p_vaddr) && (info->si_addr) < phdr[i].p_vaddr + phdr[i].p_memsz) {
+          printf("Fault address is : %p\n", info->si_addr);
+
+          // Attempt to allocate memory using mmap
+          virtual_mem = mmap(info->si_addr, PAGE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+
+          if (virtual_mem == MAP_FAILED) {
+            // mmap failed, handle the error
+            fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+            exit(1);
+          }
+
+          check_offset(lseek(fd, phdr[i].p_offset, SEEK_SET));
+          ssize_t bytes_read = read(fd, virtual_mem, PAGE_SIZE);
+
+          if (bytes_read < 0) {
+            // read failed, handle the error
+            fprintf(stderr, "read failed: %s\n", strerror(errno));
+            exit(1);
+          }
+
+          if (bytes_read < PAGE_SIZE) {
+            fragmentation = fragmentation + (PAGE_SIZE - bytes_read);
           }
           pages++;
-          break; 
+          break;
         }
-      }      
+      }
     }
   }
 }
+
 void setup_signal_handler() {
     struct sigaction sa;
     sa.sa_flags = SA_SIGINFO;
@@ -131,6 +141,7 @@ void setup_signal_handler() {
     sigaction(SIGSEGV, &sa, NULL);
 }
 
+// Load and execute the ELF executable
 void load_and_run_elf(char* exe) {
   open_elf(exe);
 
@@ -147,6 +158,7 @@ void load_and_run_elf(char* exe) {
   printf("Number of pages used: %d\n", pages);
   printf("Total internal fragmentation is : %d\n", fragmentation);
 }
+
 
 int main(int argc, char** argv)
 {
