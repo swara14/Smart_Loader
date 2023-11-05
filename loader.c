@@ -21,7 +21,10 @@ void free_space(){
 // Unmap virtual memory and close the file descriptor
 void unmapping_virtual_memory(){
     if (virtual_mem != NULL) {
-        munmap(virtual_mem, phdr[i].p_memsz);
+      if( munmap(virtual_mem, phdr[i].p_memsz)  == -1){
+        printf("error doing munmap\n");
+        exit(1);
+      }
     }
     close(fd);
 }
@@ -95,37 +98,41 @@ void open_elf( char* exe ){
   }
 }
 
-void segfault_handler(int signum, siginfo_t *info, void *context) {
+void add_fragmentation(size_t bytes_read){
+
+  if (bytes_read < PAGE_SIZE) {
+    fragmentation = fragmentation + (PAGE_SIZE - bytes_read);
+  }
+}
+
+void SIGSEGV_handler(int signum, siginfo_t *sig, void *context) {//warning was being displayed if i removed context
   if (signum == SIGSEGV) {
     no_of_faults++;
-    off_t offset = 0;
-
     for (int i = 0; i < ehdr->e_phnum; i++) {
       if (phdr[i].p_type == PT_LOAD) {
-        if ((info->si_addr) >= (phdr[i].p_vaddr) && (info->si_addr) < phdr[i].p_vaddr + phdr[i].p_memsz) {
-          printf("Fault address is : %p\n", info->si_addr);
+        if ((sig -> si_addr) >= (phdr[i].p_vaddr) && (sig->si_addr) < phdr[i].p_vaddr + phdr[i].p_memsz) {
+          //printf("Fault address is : %p\n", sig->si_addr);
 
           // Attempt to allocate memory using mmap
-          virtual_mem = mmap(info->si_addr, PAGE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+          virtual_mem = mmap(sig->si_addr, PAGE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
 
           if (virtual_mem == MAP_FAILED) {
-            // mmap failed, handle the error
-            fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+            // mmap failed
+            printf("mmap failed\n");
             exit(1);
           }
-
+          check_offset(lseek(fd, 0, SEEK_SET) );
           check_offset(lseek(fd, phdr[i].p_offset, SEEK_SET));
           ssize_t bytes_read = read(fd, virtual_mem, PAGE_SIZE);
 
+          //printf("size of phdr segment is %d\n", phdr[i].p_memsz);
+          //printf("Number of bytes read: %d\n", bytes_read);
+
           if (bytes_read < 0) {
-            // read failed, handle the error
-            fprintf(stderr, "read failed: %s\n", strerror(errno));
+            printf("Less than 0 bytes read\n");
             exit(1);
           }
-
-          if (bytes_read < PAGE_SIZE) {
-            fragmentation = fragmentation + (PAGE_SIZE - bytes_read);
-          }
+          add_fragmentation(bytes_read);
           pages++;
           break;
         }
@@ -135,30 +142,34 @@ void segfault_handler(int signum, siginfo_t *info, void *context) {
 }
 
 void setup_signal_handler() {
-    struct sigaction sa;
-    sa.sa_flags = SA_SIGINFO;
-    sa.sa_sigaction = segfault_handler;
-    sigaction(SIGSEGV, &sa, NULL);
+    struct sigaction sig;
+    memset(&sig, 0, sizeof(sig));
+    sig.sa_flags = SA_SIGINFO;
+    sig.sa_sigaction = SIGSEGV_handler;
+    if(sigaction(SIGSEGV, &sig, NULL) == -1){
+      printf("Not able to setup signal handler properly\n");
+    }
 }
 
 // Load and execute the ELF executable
 void load_and_run_elf(char* exe) {
   open_elf(exe);
 
-  size_t size_of_phdr = sizeof( Elf32_Phdr ) ,size_of_ehdr = sizeof( Elf32_Ehdr); // size of one program header
+  size_t size_of_phdr = sizeof( Elf32_Phdr ) ,size_of_ehdr = sizeof( Elf32_Ehdr); // size of one program header and the ehdr
 
   load_ehdr( size_of_ehdr );
   load_phdr( size_of_phdr );
-
-  int (*_start)() = (int(*)())ehdr -> e_entry;
+  entry_pt = ehdr -> e_entry;
+  //typecasting the entry point of the start function
+  int (*_start)() = (int(*)())entry_pt;
   int result = _start();
 
   printf("User _start return value = %d\n", result);
   printf("no of faults: %d\n", no_of_faults);
   printf("Number of pages used: %d\n", pages);
   printf("Total internal fragmentation is : %d\n", fragmentation);
-}
 
+}
 
 int main(int argc, char** argv)
 {
