@@ -109,7 +109,6 @@ void SIGSEGV_handler(int signum, siginfo_t *sig, void *context) {//warning was b
   if (signum == SIGSEGV) {
     no_of_faults++;
     for (int i = 0; i < ehdr->e_phnum; i++) {
-      if (phdr[i].p_type == PT_LOAD) {
         if ((sig -> si_addr) >= (phdr[i].p_vaddr) && (sig->si_addr) < phdr[i].p_vaddr + phdr[i].p_memsz) {
           //printf("Fault address is : %p\n", sig->si_addr);
 
@@ -139,7 +138,7 @@ void SIGSEGV_handler(int signum, siginfo_t *sig, void *context) {//warning was b
       }
     }
   }
-}
+
 
 void setup_signal_handler() {
     struct sigaction sig;
